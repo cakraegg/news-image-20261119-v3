@@ -1,108 +1,123 @@
-"""Ship the finished front page for news-image-20261119 v3.
+"""Hand over the v3 front page for news-image-20261119.
 
-Thursday 19 November 2026, summed up in one dense broadsheet: 42
-stories checked against the day's reporting -- the first Trump-Xi-Putin
-meeting in Shenzhen, the worldwide GTA VI launch, and Anthropic's
-record $81.3bn IPO at the top, plus a twelve-card grid, a world map
-with numbered story dots, a UTC timeline, a 27-item numbered brief
-list, and a date-check box naming the big stories that actually broke
-on Wednesday 18 November, so they are not passed off as today's news.
+The entry is a single picture that sums up Thursday 19 November
+2026: 42 stories checked against the day's reporting, led by the
+first Trump-Xi-Putin meeting in Shenzhen, the worldwide GTA VI
+launch, and Anthropic's record $81.3bn IPO, with a grid of smaller
+stories, a world map, a numbered brief list, and a box that names the
+big stories which actually broke on Wednesday 18 November, so none
+of them is presented as today's news.
 
-The picture was laid out beforehand and ships beside this file as
-entry.png. This program draws nothing and fetches nothing: it reads
-those bytes, proves they are one complete JPEG inside the
-competition's limits, and copies them unchanged to the output folder.
-No network, no clock, no randomness -- run it twice and the two
-outputs are the same bytes.
+The picture was composed in advance and sits next to this script as
+entry.png. Nothing here draws or downloads anything: the script
+inspects those bytes, confirms they form one whole JPEG within the
+competition's limits, and places an unchanged copy in the output
+directory. There is no network use, no clock, and no randomness, so
+running it twice produces identical bytes both times.
 """
 
+from __future__ import annotations
+
 import os
-import pathlib
 import struct
 import sys
+from pathlib import Path
 
-HERE = pathlib.Path(__file__).resolve().parent
-PICTURE = HERE / "entry.png"
-
-SOI = b"\xff\xd8"  # JPEG start-of-image marker
-EOI = b"\xff\xd9"  # JPEG end-of-image marker
-BYTE_CAP = 1_048_576  # 1 MiB, the competition's image cap
-SIDE_CAP = 1024  # longest allowed side in pixels
-
-# Markers that open a frame segment (baseline, extended, progressive).
-# Every other marker is either standalone or carries a length to skip.
-FRAME_MARKERS = (0xC0, 0xC1, 0xC2)
+SOURCE = Path(__file__).resolve().with_name("entry.png")
+TARGET_NAME = "entry.png"
+FILE_LIMIT = 1_048_576
+EDGE_LIMIT = 1024
+JPEG_START = b"\xff\xd8"
+JPEG_END = b"\xff\xd9"
+FRAME_KINDS = frozenset((0xC0, 0xC1, 0xC2))
+LONE_MARKERS = frozenset((0x01, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7))
 
 
-def fail(reason):
-    """Stop with a clear error instead of delivering a broken picture."""
-    print("error: " + reason, file=sys.stderr)
-    raise SystemExit(1)
+class BadPicture(Exception):
+    """Raised when the shipped picture fails any validation step."""
 
 
-def load_picture():
-    """Return the shipped picture, or stop if it is missing or unusable."""
+def read_image() -> bytes:
+    """Load the shipped picture, rejecting anything malformed."""
     try:
-        data = PICTURE.read_bytes()
+        blob = SOURCE.read_bytes()
     except FileNotFoundError:
-        fail("entry.png is missing next to main.py")
-    if len(data) > BYTE_CAP:
-        fail("entry.png is larger than 1 MiB")
-    if not data.startswith(SOI):
-        fail("entry.png is not a JPEG (no SOI marker)")
-    if not data.endswith(EOI):
-        fail("entry.png is not a complete JPEG (no EOI marker)")
-    return data
+        raise BadPicture("entry.png is not present beside main.py")
+    if len(blob) > FILE_LIMIT:
+        raise BadPicture("entry.png exceeds the 1 MiB cap")
+    if blob[:2] != JPEG_START:
+        raise BadPicture("entry.png does not start with a JPEG SOI marker")
+    if blob[-2:] != JPEG_END:
+        raise BadPicture("entry.png does not end with a JPEG EOI marker")
+    return blob
 
 
-def read_dimensions(data):
-    """Return (width, height) from the JPEG frame header.
+def segment_length(blob: bytes, at: int) -> int:
+    """Return how many bytes a marker segment occupies, header included."""
+    return 2 + struct.unpack(">H", blob[at + 2:at + 4])[0]
 
-    Walk the segments from the SOI marker, skipping each one by its
-    declared length, until a frame segment gives the dimensions. A
-    segment that claims to run past the end of the file, or a file
-    with no frame segment at all, is rejected. The scan segment (SOS)
-    ends the walk: entropy-coded data follows it up to the EOI marker
-    that load_picture already checked sits at the very end.
+
+def find_frame_size(blob: bytes) -> tuple[int, int]:
+    """Measure the picture from its JPEG frame header.
+
+    Steps through the marker segments from the start, jumping over
+    each one by its declared size, until a frame segment reports the
+    dimensions. A segment that overruns the file, or a file with no
+    frame segment, is rejected. The walk stops at the scan segment:
+    compressed data follows it until the EOI marker that read_image
+    already confirmed is the file's last two bytes.
     """
-    pos = 2
-    found = None
-    while pos + 9 <= len(data):
-        if data[pos] != 0xFF:
-            fail("entry.png has a malformed JPEG segment")
-        marker = data[pos + 1]
-        if marker in FRAME_MARKERS:
-            height, width = struct.unpack(">HH", data[pos + 5:pos + 9])
-            found = (width, height)
-        if marker == 0xD9 or marker == 0xDA:
+    offset = 2
+    size: tuple[int, int] | None = None
+    while offset + 9 <= len(blob):
+        if blob[offset] != 0xFF:
+            raise BadPicture("entry.png has a broken JPEG segment")
+        kind = blob[offset + 1]
+        if kind in FRAME_KINDS:
+            tall, wide = struct.unpack(">HH", blob[offset + 5:offset + 9])
+            size = (wide, tall)
+        if kind in (0xD9, 0xDA):
             break
-        if marker == 0x01 or 0xD0 <= marker <= 0xD7:
-            pos += 2  # standalone marker, no length field
+        if kind in LONE_MARKERS:
+            offset += 2
             continue
-        size = struct.unpack(">H", data[pos + 2:pos + 4])[0]
-        if pos + 2 + size > len(data):
-            fail("entry.png has a truncated JPEG segment")
-        pos += 2 + size
-    if found is None:
-        fail("entry.png has no JPEG frame header")
-    if found[0] == 0 or found[1] == 0:
-        fail("entry.png has a zero dimension")
-    return found
+        jump = segment_length(blob, offset)
+        if offset + jump > len(blob):
+            raise BadPicture("entry.png has a cut-off JPEG segment")
+        offset += jump
+    if size is None:
+        raise BadPicture("entry.png carries no JPEG frame header")
+    if size[0] <= 0 or size[1] <= 0:
+        raise BadPicture("entry.png reports a zero side")
+    return size
 
 
-def main():
-    """Check the picture, then hand it over to the output folder."""
-    data = load_picture()
-    width, height = read_dimensions(data)
-    if width > SIDE_CAP or height > SIDE_CAP:
-        fail("entry.png is larger than 1024 by 1024")
-    folder = pathlib.Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output")
-    folder.mkdir(parents=True, exist_ok=True)
-    target = folder / "entry.png"
-    target.write_bytes(data)
-    if target.read_bytes() != data:
-        fail("the written entry.png does not match the validated picture")
+def place_image(blob: bytes) -> None:
+    """Confirm the size, then copy the picture to the output folder."""
+    wide, tall = find_frame_size(blob)
+    if wide > EDGE_LIMIT or tall > EDGE_LIMIT:
+        raise BadPicture("entry.png is wider or taller than 1024 pixels")
+    out_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    destination = out_dir / TARGET_NAME
+    destination.write_bytes(blob)
+    if destination.read_bytes() != blob:
+        raise BadPicture("the copied entry.png differs from the validated one")
+    delivered_wide, delivered_tall = find_frame_size(destination.read_bytes())
+    if (delivered_wide, delivered_tall) != (wide, tall):
+        raise BadPicture("the copied entry.png measures differently from the validated one")
+
+
+def run() -> int:
+    """Validate the picture and deliver it, reporting problems plainly."""
+    try:
+        blob = read_image()
+        place_image(blob)
+    except BadPicture as problem:
+        print(f"error: {problem}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(run())
