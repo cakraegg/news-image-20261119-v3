@@ -63,11 +63,19 @@ Three candidates were built and pre-judged pairwise with a vision
 model before one was picked: a dense 42-story broadsheet (A), a
 map-first layout with all 42 stories as numbered briefs (B), and a
 classic newspaper with three big hero photos and region columns (C).
-A beat C in both orders (margin 3) and beat B in the judged order
-(margin 2, 0.90 vs 0.75); two reverse-order calls were refused by the
-pre-judge service (HTTP 429) and are recorded as such in the work log.
-A was then judged against the v2 front page and the rank-1, rank-5
-and rank-20 covers — see `prejudge-lapis2.log` in the work folder.
+Lapis 1: A beat C in both orders (margin 3) and beat B in the judged
+order (margin 2, 0.90 vs 0.75); the two reverse-order calls were
+refused by the pre-judge service (HTTP 429, three attempts each).
+Lapis 2, A against the v2 front page and the top covers: A vs v2
+split 1–1 at margin 2 both ways — A won on breadth (42 vs 27
+stories), v2 won on craft and legibility ("avoiding the cluttered
+feel") — so v3 is not clearly stronger than v2. A also split 1–1
+with the rank-20 cover and lost the judged directions against the
+rank-1 and rank-5 covers (margin 2 each). Full logs:
+`prejudge-lapis1.log`, `prejudge-lapis2.log`,
+`prejudge-lapis2-retry.log` in the work folder. One loss reason
+claimed A omits COP31 — wrong; COP31 is story 5 in A's grid, which
+itself shows how the dense grid misreads at small scale.
 The hero photo and two photos are AI illustrations without watermark;
 the skyline, the ANT chart, the small icons and the world map are
 hand-drawn. All text is set in type, so nothing is garbled; the
